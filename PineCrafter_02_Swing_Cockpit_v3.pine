@@ -1,0 +1,430 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © PineCrafter
+//@version=6
+// ═══════════════════════════════════════════════════════════════════
+//  PineCrafter · Swing Cockpit  ·  v3.0
+//  Pine Script v6 · Sin repintado / Non-repainting
+//
+//  NOVEDADES v2
+//   · Cada señal recibe una NOTA de 1 a 4 estrellas. Una estrella por
+//     cada confirmación que supera: volumen, vela de convicción,
+//     temporalidad superior a favor y fuerza (ADX).
+//   · Tú eliges el listón mínimo. Menos señales, mejores señales.
+//   · El panel separa las estadísticas POR NIVEL DE CALIDAD, para ver
+//     si las estrellas sirven de verdad en ese activo.
+//   · Perfiles: Swing / Intradía / Personalizado.
+//   · Modo de dibujo: todas las operaciones, solo la actual, o ninguna.
+//   · v3.0: el panel mide el ACIERTO y la ESPERANZA MATEMÁTICA con el
+//     objetivo puesto en TP1, TP2 y TP3, sobre TODAS las señales.
+//     Es la prueba que decide si el motor de entradas vale o no:
+//     esperanza positiva = gana dinero; negativa = lo pierde.
+//   · v2.2: las señales de máxima calidad se marcan con un ROMBO
+//     dorado grande; las demás, con el triángulo de siempre.
+//   · v2.1: las señales descartadas se ven como puntos pequeños, el
+//     historial por estrellas mide TODAS las señales (también las
+//     descartadas) y el panel se coloca en nueve posiciones.
+//
+//  Las estadísticas son una simulación de las propias señales sobre el
+//  histórico, medidas al TP1. No incluyen comisiones ni deslizamiento,
+//  no predicen nada y esto no es asesoramiento financiero.
+// ═══════════════════════════════════════════════════════════════════
+indicator("PineCrafter · Swing Cockpit v3.0", shorttitle = "PC · Cockpit", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// ── Enumeraciones / Enums ──────────────────────────────────────────
+enum Lang
+    es = "Español"
+    en = "English"
+
+enum Dir
+    both   = "Ambos / Both"
+    longs  = "Solo largos / Longs only"
+    shorts = "Solo cortos / Shorts only"
+
+enum Perfil
+    swing  = "Swing (objetivos amplios)"
+    intra  = "Intradía (objetivos cortos)"
+    custom = "Personalizado / Custom"
+
+enum Dibujo
+    todas   = "Todas las operaciones / All"
+    actual  = "Solo la operación en curso / Current only"
+    ninguna = "Ninguna / None"
+
+enum Etiqueta
+    completa = "Completa / Full"
+    breve    = "Breve / Compact"
+    sinEtiq  = "Sin etiqueta / None"
+
+G_STR = "1 · Estrategia / Strategy"
+G_QUA = "2 · Calidad de la señal / Signal quality"
+G_RSK = "3 · Riesgo y objetivos / Risk & targets"
+G_VIS = "4 · Visual"
+
+// ── Ajustes / Inputs ───────────────────────────────────────────────
+dirMode  = input.enum(Dir.both, "Dirección / Direction", group = G_STR)
+fastLen  = input.int(21, "EMA rápida / Fast EMA", minval = 1, group = G_STR)
+trendLen = input.int(50, "EMA tendencia / Trend EMA", minval = 2, group = G_STR)
+
+minStars = input.int(3, "Estrellas mínimas / Minimum stars", minval = 1, maxval = 4, group = G_QUA, tooltip = "Solo se muestran las señales que alcanzan esta nota. 1 = todas, 4 = solo las perfectas.")
+volLen   = input.int(20, "Media de volumen / Volume average", minval = 1, group = G_QUA)
+volMult  = input.float(1.2, "Volumen mínimo × media / Min volume × avg", minval = 0.1, step = 0.1, group = G_QUA, tooltip = "★ Volumen: la vela de entrada mueve más volumen que la media reciente.")
+closePct = input.float(60, "Cierre en el % fuerte de la vela / Close in strongest %", minval = 10, maxval = 100, step = 5, group = G_QUA, tooltip = "★ Convicción: en un largo, la vela cierra en la parte alta de su rango. Al revés en cortos.")
+htfTf    = input.timeframe("D", "Temporalidad superior / Higher timeframe", group = G_QUA, tooltip = "★ Contexto: úsala SIEMPRE mayor que la del gráfico.")
+htfLen   = input.int(50, "EMA de la temporalidad superior / HTF EMA", minval = 2, group = G_QUA)
+adxLen   = input.int(14, "Periodo ADX / ADX length", minval = 1, group = G_QUA)
+adxMin   = input.int(20, "ADX mínimo / ADX minimum", minval = 0, group = G_QUA, tooltip = "★ Fuerza: hay tendencia real, no un mercado plano.")
+
+perfil  = input.enum(Perfil.swing, "Perfil / Profile", group = G_RSK, tooltip = "Swing: stop 1,5 ATR y objetivos 1R/2R/3R. Intradía: stop 1 ATR y objetivos 0,5R/1R/1,5R. Personalizado: manda lo que pongas abajo.")
+capital = input.float(10000, "Capital de la cuenta / Account size", minval = 1, group = G_RSK)
+riskPct = input.float(1.0, "Riesgo por operación % / Risk per trade %", minval = 0.01, maxval = 100, step = 0.1, group = G_RSK)
+atrLen  = input.int(14, "Periodo ATR / ATR length", minval = 1, group = G_RSK)
+atrIn   = input.float(1.5, "Personalizado: Stop = ATR ×", minval = 0.1, step = 0.1, group = G_RSK)
+r1In    = input.float(1.0, "Personalizado: TP1 (en R)", minval = 0.1, step = 0.1, group = G_RSK)
+r2In    = input.float(2.0, "Personalizado: TP2 (en R)", minval = 0.1, step = 0.1, group = G_RSK)
+r3In    = input.float(3.0, "Personalizado: TP3 (en R)", minval = 0.1, step = 0.1, group = G_RSK)
+
+langIn    = input.enum(Lang.es, "Idioma / Language", group = G_VIS)
+drawMode  = input.enum(Dibujo.actual, "Dibujar zonas / Draw zones", group = G_VIS)
+lblMode   = input.enum(Etiqueta.breve, "Etiqueta del plan / Plan label", group = G_VIS)
+showEmas  = input.bool(true, "Mostrar EMAs / Show EMAs", group = G_VIS)
+showStats = input.bool(true, "Mostrar estadísticas por calidad / Stats by quality", group = G_VIS)
+cLong     = input.color(#00E5FF, "Entrada larga / Long entry", group = G_VIS)
+cShort    = input.color(#FF6D00, "Entrada corta / Short entry", group = G_VIS)
+cRisk     = input.color(#F23645, "Zona de riesgo / Risk zone", group = G_VIS)
+cRew      = input.color(#089981, "Zona de objetivo / Target zone", group = G_VIS)
+primeLvl  = input.int(4, "Destacar con rombo desde N estrellas / Diamond from N stars", minval = 1, maxval = 4, group = G_VIS, tooltip = "Las señales que alcanzan esta nota se dibujan como un rombo dorado grande, para que salten a la vista sin esconder las demás.")
+cPrime    = input.color(#FFD600, "Color de las destacadas / Premium signal color", group = G_VIS)
+showWeak  = input.bool(true, "Marcar señales descartadas / Mark discarded signals", group = G_VIS, tooltip = "Puntos pequeños donde hubo señal pero no llegó a las estrellas mínimas. Contexto, no operaciones.")
+tblPos    = input.string(position.top_right, "Posición del panel / Panel position", options = [position.top_right, position.top_center, position.top_left, position.middle_right, position.middle_center, position.middle_left, position.bottom_right, position.bottom_center, position.bottom_left], group = G_VIS)
+
+// ── Ayuda de idioma / Language helper ──────────────────────────────
+txt(string sEs, string sEn) =>
+    langIn == Lang.es ? sEs : sEn
+
+stars(int n) =>
+    (n >= 1 ? "★" : "☆") + (n >= 2 ? "★" : "☆") + (n >= 3 ? "★" : "☆") + (n >= 4 ? "★" : "☆")
+
+// ── Perfil: qué números mandan ─────────────────────────────────────
+float atrMult = perfil == Perfil.swing ? 1.5 : perfil == Perfil.intra ? 1.0 : atrIn
+float r1      = perfil == Perfil.swing ? 1.0 : perfil == Perfil.intra ? 0.5 : r1In
+float r2      = perfil == Perfil.swing ? 2.0 : perfil == Perfil.intra ? 1.0 : r2In
+float r3      = perfil == Perfil.swing ? 3.0 : perfil == Perfil.intra ? 1.5 : r3In
+
+// ── Cálculos / Calculations ────────────────────────────────────────
+float emaFast  = ta.ema(close, fastLen)
+float emaTrend = ta.ema(close, trendLen)
+float atrVal   = ta.atr(atrLen)
+float volAvg   = ta.sma(volume, volLen)
+[_diP, _diM, adxVal] = ta.dmi(adxLen, adxLen)
+
+// Contexto de la temporalidad superior, leído SIEMPRE de su vela cerrada
+htfUp() =>
+    close > ta.ema(close, htfLen)
+
+bool htfBull = request.security(syminfo.tickerid, htfTf, htfUp()[1], lookahead = barmerge.lookahead_on)
+
+bool bullCtx = emaFast > emaTrend and close > emaTrend
+bool bearCtx = emaFast < emaTrend and close < emaTrend
+
+// Los cruces se calculan SIEMPRE (Pine v6 evalúa "and" de forma perezosa y
+// una función histórica dentro de una condición puede saltarse velas).
+bool xUp = ta.crossover(close, emaFast)
+bool xDn = ta.crossunder(close, emaFast)
+
+// Disparo base: el precio recupera la EMA rápida, solo en vela CERRADA
+bool baseLong  = barstate.isconfirmed and dirMode != Dir.shorts and bullCtx and xUp
+bool baseShort = barstate.isconfirmed and dirMode != Dir.longs and bearCtx and xDn
+
+// ── Las cuatro confirmaciones / The four confirmations ─────────────
+float rango   = math.max(high - low, syminfo.mintick)
+float posCier = (close - low) / rango          // 1 = cierra en máximos, 0 = en mínimos
+
+bool okVol  = volume > volAvg * volMult
+bool okAdx  = adxVal > adxMin
+bool okBodyL = posCier >= closePct / 100
+bool okBodyS = (1 - posCier) >= closePct / 100
+bool okHtfL = htfBull
+bool okHtfS = not htfBull
+
+int starsL = (okVol ? 1 : 0) + (okAdx ? 1 : 0) + (okBodyL ? 1 : 0) + (okHtfL ? 1 : 0)
+int starsS = (okVol ? 1 : 0) + (okAdx ? 1 : 0) + (okBodyS ? 1 : 0) + (okHtfS ? 1 : 0)
+
+bool longTrig  = baseLong  and starsL >= minStars
+bool shortTrig = baseShort and starsS >= minStars
+
+// Señales que existieron pero no llegaron al listón: contexto visual
+bool weakLong  = baseLong  and starsL < minStars
+bool weakShort = baseShort and starsS < minStars
+
+// ── Estado de la operación / Trade state ───────────────────────────
+var int   posDir    = 0
+var float entryP    = na
+var float stopP     = na
+var float tp1P      = na
+var float tp2P      = na
+var float tp3P      = na
+var float qty       = na
+var int   posStars  = 0
+var bool  got2      = false
+var bool  got3      = false
+
+var box   riskBox = na
+var box   rewBox  = na
+var line  tp1Line = na
+var line  tp2Line = na
+var label planLbl = na
+
+// ── Estadísticas / Statistics ──────────────────────────────────────
+var int   nTrades   = 0
+var int   nWins     = 0
+var float grossWin  = 0.0
+var float grossLoss = 0.0
+// Banco de pruebas: sigue TODAS las señales (pasen o no el filtro de
+// estrellas) hasta el stop o el TP3, anotando qué objetivos llegó a tocar.
+// Con eso podemos comparar los tres objetivos sobre la MISMA muestra.
+var int   mDir    = 0      // dirección de la operación en medición
+var float mStop   = na
+var float mT1     = na
+var float mT2     = na
+var float mT3     = na
+var bool  mHit1   = false
+var bool  mHit2   = false
+var bool  mHit3   = false
+var int   mTotal  = 0      // señales medidas
+var int   mWin1   = 0      // llegaron al TP1 antes que al stop
+var int   mWin2   = 0      // llegaron al TP2 antes que al stop
+var int   mWin3   = 0      // llegaron al TP3 antes que al stop
+
+// ── Banco de pruebas: ¿qué objetivo conviene? ──────────────────────
+// Cada señal se sigue hasta el stop o hasta el TP3. Anotamos por separado
+// si tocó TP1, TP2 y TP3 ANTES que el stop. Criterio conservador: si en la
+// misma vela se tocan stop y objetivo, cuenta como pérdida.
+if barstate.isconfirmed
+    if mDir != 0
+        bool golpeStop = mDir == 1 ? low <= mStop : high >= mStop
+        if golpeStop
+            mTotal := mTotal + 1
+            mWin1  := mWin1 + (mHit1 ? 1 : 0)
+            mWin2  := mWin2 + (mHit2 ? 1 : 0)
+            mWin3  := mWin3 + (mHit3 ? 1 : 0)
+            mDir   := 0
+        else
+            mHit1 := mHit1 or (mDir == 1 ? high >= mT1 : low <= mT1)
+            mHit2 := mHit2 or (mDir == 1 ? high >= mT2 : low <= mT2)
+            mHit3 := mHit3 or (mDir == 1 ? high >= mT3 : low <= mT3)
+            if mHit3
+                mTotal := mTotal + 1
+                mWin1  := mWin1 + 1
+                mWin2  := mWin2 + 1
+                mWin3  := mWin3 + 1
+                mDir   := 0
+
+    if mDir == 0 and (baseLong or baseShort)
+        int   mdNew = baseLong ? 1 : -1
+        float mDist = atrVal * atrMult
+        if mDist > 0
+            mDir  := mdNew
+            mStop := mdNew == 1 ? close - mDist : close + mDist
+            mT1   := mdNew == 1 ? close + mDist * r1 : close - mDist * r1
+            mT2   := mdNew == 1 ? close + mDist * r2 : close - mDist * r2
+            mT3   := mdNew == 1 ? close + mDist * r3 : close - mDist * r3
+            mHit1 := false
+            mHit2 := false
+            mHit3 := false
+
+// ── Cierre de la operación abierta / Close open trade ──────────────
+float result = na
+
+if barstate.isconfirmed and posDir != 0
+    if posDir == 1
+        got2 := got2 or high >= tp2P
+        got3 := got3 or high >= tp3P
+        // Si el stop y el TP1 se tocan en la misma vela, contamos pérdida (criterio conservador)
+        result := low <= stopP ? -1.0 : high >= tp1P ? r1 : na
+    else
+        got2 := got2 or low <= tp2P
+        got3 := got3 or low <= tp3P
+        result := high >= stopP ? -1.0 : low <= tp1P ? r1 : na
+
+    if not na(result)
+        nTrades := nTrades + 1
+        if result > 0
+            nWins    := nWins + 1
+            grossWin := grossWin + result
+        else
+            grossLoss := grossLoss + 1.0
+        posDir := 0
+        got2   := false
+        got3   := false
+
+// ── Apertura de una operación nueva / Open a new trade ─────────────
+bool opened = false
+
+if posDir == 0 and (longTrig or shortTrig)
+    int   dirNow = longTrig ? 1 : -1
+    float dist   = atrVal * atrMult
+    if dist > 0
+        posDir   := dirNow
+        posStars := dirNow == 1 ? starsL : starsS
+        entryP   := close
+        stopP    := dirNow == 1 ? entryP - dist : entryP + dist
+        tp1P     := dirNow == 1 ? entryP + dist * r1 : entryP - dist * r1
+        tp2P     := dirNow == 1 ? entryP + dist * r2 : entryP - dist * r2
+        tp3P     := dirNow == 1 ? entryP + dist * r3 : entryP - dist * r3
+        qty      := capital * riskPct / 100 / dist
+        got2     := false
+        got3     := false
+        opened   := true
+
+        color cDir = dirNow == 1 ? cLong : cShort
+
+        // Si solo queremos ver la operación en curso, borramos la anterior
+        if drawMode == Dibujo.actual
+            box.delete(riskBox)
+            box.delete(rewBox)
+            line.delete(tp1Line)
+            line.delete(tp2Line)
+            label.delete(planLbl)
+
+        if drawMode != Dibujo.ninguna
+            riskBox := box.new(bar_index, math.max(entryP, stopP), bar_index + 1, math.min(entryP, stopP), border_color = color.new(cRisk, 55), bgcolor = color.new(cRisk, 88))
+            rewBox  := box.new(bar_index, math.max(entryP, tp3P), bar_index + 1, math.min(entryP, tp3P), border_color = color.new(cRew, 55), bgcolor = color.new(cRew, 90))
+            tp1Line := line.new(bar_index, tp1P, bar_index + 1, tp1P, color = color.new(cRew, 20), style = line.style_dotted)
+            tp2Line := line.new(bar_index, tp2P, bar_index + 1, tp2P, color = color.new(cRew, 45), style = line.style_dotted)
+
+        if lblMode != Etiqueta.sinEtiq
+            string side  = dirNow == 1 ? txt("LARGO", "LONG") : txt("CORTO", "SHORT")
+            string arrow = dirNow == 1 ? "▲ " : "▼ "
+            string plan  = ""
+            if lblMode == Etiqueta.breve
+                plan := arrow + stars(posStars) + "  " + str.tostring(qty, "#.##") + txt(" uds", " u")
+            else
+                plan := arrow + side + "  " + stars(posStars) + "\n" +
+                     txt("Entrada ", "Entry ") + str.tostring(entryP, format.mintick) + "\n" +
+                     "Stop " + str.tostring(stopP, format.mintick) + "  (" + str.tostring(dist / entryP * 100, "#.##") + "%)\n" +
+                     "TP1 " + str.tostring(tp1P, format.mintick) + "  ·  TP2 " + str.tostring(tp2P, format.mintick) + "  ·  TP3 " + str.tostring(tp3P, format.mintick) + "\n" +
+                     txt("Tamaño ", "Size ") + str.tostring(qty, "#.##") + txt(" uds  ·  Riesgo ", " units  ·  Risk ") + str.tostring(capital * riskPct / 100, "#.##")
+            planLbl := label.new(bar_index, dirNow == 1 ? low : high, plan,
+                 style     = dirNow == 1 ? label.style_label_up : label.style_label_down,
+                 color     = color.new(color.black, 20),
+                 textcolor = posStars >= primeLvl ? cPrime : cDir,
+                 size      = lblMode == Etiqueta.breve ? size.tiny : size.small,
+                 textalign = text.align_left)
+
+// Los dibujos acompañan a la operación mientras sigue abierta
+if posDir != 0 and drawMode != Dibujo.ninguna
+    if not na(riskBox)
+        box.set_right(riskBox, bar_index + 1)
+    if not na(rewBox)
+        box.set_right(rewBox, bar_index + 1)
+    if not na(tp1Line)
+        line.set_x2(tp1Line, bar_index + 1)
+    if not na(tp2Line)
+        line.set_x2(tp2Line, bar_index + 1)
+
+// ── Gráfico / Chart ────────────────────────────────────────────────
+plot(showEmas ? emaFast : na, "EMA rápida / Fast EMA", color = color.new(#2962FF, 25), linewidth = 1)
+plot(showEmas ? emaTrend : na, "EMA tendencia / Trend EMA", color = color.new(#787B86, 25), linewidth = 2)
+
+// Calidad máxima = rombo dorado grande. Calidad normal = triángulo.
+bool primeLong  = opened and posDir ==  1 and posStars >= primeLvl
+bool primeShort = opened and posDir == -1 and posStars >= primeLvl
+bool normLong   = opened and posDir ==  1 and posStars <  primeLvl
+bool normShort  = opened and posDir == -1 and posStars <  primeLvl
+
+plotshape(normLong,  title = "Entrada larga / Long entry",  style = shape.triangleup,   location = location.belowbar, color = cLong,  size = size.small)
+plotshape(normShort, title = "Entrada corta / Short entry", style = shape.triangledown, location = location.abovebar, color = cShort, size = size.small)
+plotshape(primeLong,  title = "Entrada larga destacada / Premium long",  style = shape.diamond, location = location.belowbar, color = cPrime, size = size.normal)
+plotshape(primeShort, title = "Entrada corta destacada / Premium short", style = shape.diamond, location = location.abovebar, color = cPrime, size = size.normal)
+
+// Señales descartadas por falta de estrellas: contexto, no son operaciones
+plotshape(showWeak and weakLong,  title = "Descartada alcista / Discarded long",  style = shape.circle, location = location.belowbar, color = color.new(cLong, 60),  size = size.tiny)
+plotshape(showWeak and weakShort, title = "Descartada bajista / Discarded short", style = shape.circle, location = location.abovebar, color = color.new(cShort, 60), size = size.tiny)
+
+// ── Panel / Dashboard ──────────────────────────────────────────────
+var table cockpit = table.new(tblPos, 2, 17, bgcolor = color.new(color.black, 12), border_color = color.new(color.gray, 70), border_width = 1)
+
+cell(int col, int row, string s, color txtCol, color bg) =>
+    table.cell(cockpit, col, row, s, text_color = txtCol, bgcolor = bg, text_size = size.small)
+
+// Una fila por objetivo: acierto y ESPERANZA MATEMÁTICA por operación.
+// Esperanza = (acierto × R del objetivo) − (fallo × 1R). Si sale positiva,
+// ese objetivo gana dinero a la larga. Si sale negativa, lo pierde.
+targetRow(int row, string etiqueta, int wins, float rMult) =>
+    float  wr  = mTotal > 0 ? wins * 100.0 / mTotal : na
+    float  esp = mTotal > 0 ? (wins * rMult - (mTotal - wins) * 1.0) / mTotal : na
+    string val = mTotal > 0 ? str.tostring(wr, "#.#") + "%  ·  " + (esp >= 0 ? "+" : "") + str.tostring(esp, "#.##") + " R" : "—"
+    color  bg  = mTotal > 0 and esp > 0 ? color.new(cRew, 45) : mTotal > 0 ? color.new(cRisk, 65) : color.new(color.black, 100)
+    cell(0, row, etiqueta + " (" + str.tostring(rMult, "#.#") + "R)", color.silver, color.new(color.black, 100))
+    cell(1, row, val, color.white, bg)
+
+if barstate.islast
+    float  winRate = nTrades > 0 ? nWins * 100.0 / nTrades : na
+    float  avgR    = nTrades > 0 ? (grossWin - grossLoss) / nTrades : na
+    float  pf      = grossLoss > 0 ? grossWin / grossLoss : na
+    color  cState  = posDir == 1 ? cLong : posDir == -1 ? cShort : color.gray
+    string sState  = posDir == 1 ? txt("En largo", "Long open") : posDir == -1 ? txt("En corto", "Short open") : txt("Sin operación", "Flat")
+    string dash    = "—"
+    color  clear   = color.new(color.black, 100)
+
+    cell(0, 0, "PineCrafter", color.white, color.new(#2962FF, 25))
+    cell(1, 0, "Cockpit v2", color.white, color.new(#2962FF, 25))
+
+    cell(0, 1, txt("Estado", "State"), color.silver, clear)
+    cell(1, 1, sState, color.white, color.new(cState, 45))
+
+    cell(0, 2, txt("Calidad", "Quality"), color.silver, clear)
+    cell(1, 2, posDir != 0 ? stars(posStars) : dash, color.white, posDir != 0 ? color.new(cState, 60) : clear)
+
+    cell(0, 3, txt("Entrada", "Entry"), color.silver, clear)
+    cell(1, 3, posDir != 0 ? str.tostring(entryP, format.mintick) : dash, color.white, clear)
+
+    cell(0, 4, "Stop", color.silver, clear)
+    cell(1, 4, posDir != 0 ? str.tostring(stopP, format.mintick) : dash, color.white, clear)
+
+    cell(0, 5, "TP1 / TP2 / TP3", color.silver, clear)
+    cell(1, 5, posDir != 0 ? str.tostring(tp1P, format.mintick) + " / " + str.tostring(tp2P, format.mintick) + " / " + str.tostring(tp3P, format.mintick) : dash, color.white, clear)
+
+    cell(0, 6, txt("Tamaño sugerido", "Suggested size"), color.silver, clear)
+    cell(1, 6, posDir != 0 ? str.tostring(qty, "#.##") : dash, color.white, clear)
+
+    cell(0, 7, txt("HISTÓRICO EN ESTE GRÁFICO", "HISTORY ON THIS CHART"), color.silver, color.new(color.gray, 75))
+    cell(1, 7, txt("al TP1", "at TP1"), color.silver, color.new(color.gray, 75))
+
+    cell(0, 8, txt("Operaciones", "Trades"), color.silver, clear)
+    cell(1, 8, str.tostring(nTrades), color.white, clear)
+
+    cell(0, 9, txt("Aciertos", "Win rate"), color.silver, clear)
+    cell(1, 9, nTrades > 0 ? str.tostring(winRate, "#.#") + "%" : dash, color.white, color.new(nTrades > 0 and winRate >= 50 ? cRew : color.gray, 55))
+
+    cell(0, 10, txt("R media", "Average R"), color.silver, clear)
+    cell(1, 10, nTrades > 0 ? str.tostring(avgR, "#.##") + " R" : dash, color.white, color.new(nTrades > 0 and avgR > 0 ? cRew : color.gray, 55))
+
+    cell(0, 11, txt("Factor de beneficio", "Profit factor"), color.silver, clear)
+    cell(1, 11, na(pf) ? dash : str.tostring(pf, "#.##"), color.white, color.new(not na(pf) and pf > 1 ? cRew : color.gray, 55))
+
+    if showStats
+        cell(0, 12, txt("¿QUÉ OBJETIVO CONVIENE?", "WHICH TARGET PAYS?"), color.silver, color.new(color.gray, 75))
+        cell(1, 12, str.tostring(mTotal) + txt(" señales medidas", " signals measured"), color.silver, color.new(color.gray, 75))
+        targetRow(13, "TP1", mWin1, r1)
+        targetRow(14, "TP2", mWin2, r2)
+        targetRow(15, "TP3", mWin3, r3)
+        cell(0, 16, txt("acierto · esperanza", "win rate · expectancy"), color.gray, color.new(color.black, 100))
+        cell(1, 16, txt("verde = gana a la larga", "green = positive edge"), color.gray, color.new(color.black, 100))
+
+// ── Alertas / Alerts ───────────────────────────────────────────────
+alertcondition(longTrig,  "Entrada larga / Long entry",  "PineCrafter Cockpit: entrada LARGA en {{ticker}} ({{interval}})")
+alertcondition(shortTrig, "Entrada corta / Short entry", "PineCrafter Cockpit: entrada CORTA en {{ticker}} ({{interval}})")
+
+// Mensaje JSON listo para webhook / JSON payload ready for webhooks
+if opened
+    string jsonMsg = '{"estrategia":"pinecrafter_cockpit_v2","simbolo":"' + syminfo.ticker +
+         '","accion":"' + (posDir == 1 ? "comprar" : "vender") +
+         '","calidad":' + str.tostring(posStars) +
+         ',"entrada":' + str.tostring(entryP, format.mintick) +
+         ',"stop":' + str.tostring(stopP, format.mintick) +
+         ',"tp1":' + str.tostring(tp1P, format.mintick) +
+         ',"tp2":' + str.tostring(tp2P, format.mintick) +
+         ',"tp3":' + str.tostring(tp3P, format.mintick) +
+         ',"unidades":' + str.tostring(qty, "#.##") + '}'
+    alert(jsonMsg, alert.freq_once_per_bar_close)
