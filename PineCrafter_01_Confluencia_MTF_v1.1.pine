@@ -3,7 +3,7 @@
 //@version=6
 // ═══════════════════════════════════════════════════════════════════
 //  PineCrafter · Confluencia Multi-Temporalidad / MTF Confluence
-//  Portfolio #1 · v1.1 · Pine Script v6 · Sin repintado / Non-repainting
+//  Portfolio #1 · v1.2 · Pine Script v6 · Sin repintado / Non-repainting
 //
 //  Qué hace: mira la tendencia en 3 temporalidades a la vez con dos
 //  medias exponenciales, la resume en un panel y marca el momento en
@@ -18,6 +18,8 @@
 //  IMPORTANTE: usa temporalidades IGUALES O MAYORES que la del gráfico.
 //  Las menores se ignoran y el panel las marca con ⚠.
 //
+//  v1.2 · Idioma por defecto pasa a inglés (para publicar en Fiverr;
+//  sigue siendo bilingüe, cambia a español cuando quieras).
 //  v1.1 · Colores de señal configurables y distintos de los de las velas,
 //         triángulos más grandes, EMAs en tonos discretos.
 // ═══════════════════════════════════════════════════════════════════
@@ -43,7 +45,7 @@ slowLen = input.int(50, "EMA lenta / Slow EMA",  minval = 2, group = G_TREND)
 showEma = input.bool(true, "Mostrar EMAs / Show EMAs", group = G_VIS)
 showBg  = input.bool(true, "Fondo en confluencia total / Background on full confluence", group = G_VIS)
 tblPos  = input.string(position.top_right, "Panel", options = [position.top_right, position.top_left, position.bottom_right, position.bottom_left], group = G_VIS)
-langIn  = input.enum(Lang.es, "Idioma / Language", group = G_VIS)
+langIn  = input.enum(Lang.en, "Idioma / Language", group = G_VIS)
 
 // NUEVO v1.1: colores configurables, por defecto distintos del verde/rojo de las velas
 cBull     = input.color(#00E5FF, "Señal alcista / Bullish signal", group = G_COL)
