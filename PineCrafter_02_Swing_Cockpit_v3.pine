@@ -2,7 +2,7 @@
 // © PineCrafter
 //@version=6
 // ═══════════════════════════════════════════════════════════════════
-//  PineCrafter · Swing Cockpit  ·  v3.0
+//  PineCrafter · Swing Cockpit  ·  v3.3
 //  Pine Script v6 · Sin repintado / Non-repainting
 //
 //  NOVEDADES v2
@@ -14,6 +14,13 @@
 //     si las estrellas sirven de verdad en ese activo.
 //   · Perfiles: Swing / Intradía / Personalizado.
 //   · Modo de dibujo: todas las operaciones, solo la actual, o ninguna.
+//   · v3.3: "Trades" y "signals measured" ahora dicen claramente que son
+//     dos conteos distintos (uno con el filtro de estrellas, el otro con
+//     todas las señales), para que no parezca que el panel no cuadra.
+//   · v3.2: idioma por defecto pasa a inglés (para publicar en Fiverr;
+//     sigue siendo bilingüe, cambia a español cuando quieras).
+//   · v3.1: panel abajo a la derecha por defecto. Nuevo formato de
+//     alerta legible, además del JSON para bot, seleccionable en Visual.
 //   · v3.0: el panel mide el ACIERTO y la ESPERANZA MATEMÁTICA con el
 //     objetivo puesto en TP1, TP2 y TP3, sobre TODAS las señales.
 //     Es la prueba que decide si el motor de entradas vale o no:
@@ -28,7 +35,7 @@
 //  histórico, medidas al TP1. No incluyen comisiones ni deslizamiento,
 //  no predicen nada y esto no es asesoramiento financiero.
 // ═══════════════════════════════════════════════════════════════════
-indicator("PineCrafter · Swing Cockpit v3.0", shorttitle = "PC · Cockpit", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+indicator("PineCrafter · Swing Cockpit v3.3", shorttitle = "PC·Cockpit", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
 
 // ── Enumeraciones / Enums ──────────────────────────────────────────
 enum Lang
@@ -54,6 +61,10 @@ enum Etiqueta
     completa = "Completa / Full"
     breve    = "Breve / Compact"
     sinEtiq  = "Sin etiqueta / None"
+
+enum AlertFmt
+    json     = "JSON (para bot) / JSON (for bot)"
+    readable = "Texto legible / Readable text"
 
 G_STR = "1 · Estrategia / Strategy"
 G_QUA = "2 · Calidad de la señal / Signal quality"
@@ -83,7 +94,7 @@ r1In    = input.float(1.0, "Personalizado: TP1 (en R)", minval = 0.1, step = 0.1
 r2In    = input.float(2.0, "Personalizado: TP2 (en R)", minval = 0.1, step = 0.1, group = G_RSK)
 r3In    = input.float(3.0, "Personalizado: TP3 (en R)", minval = 0.1, step = 0.1, group = G_RSK)
 
-langIn    = input.enum(Lang.es, "Idioma / Language", group = G_VIS)
+langIn    = input.enum(Lang.en, "Idioma / Language", group = G_VIS)
 drawMode  = input.enum(Dibujo.actual, "Dibujar zonas / Draw zones", group = G_VIS)
 lblMode   = input.enum(Etiqueta.breve, "Etiqueta del plan / Plan label", group = G_VIS)
 showEmas  = input.bool(true, "Mostrar EMAs / Show EMAs", group = G_VIS)
@@ -95,7 +106,8 @@ cRew      = input.color(#089981, "Zona de objetivo / Target zone", group = G_VIS
 primeLvl  = input.int(4, "Destacar con rombo desde N estrellas / Diamond from N stars", minval = 1, maxval = 4, group = G_VIS, tooltip = "Las señales que alcanzan esta nota se dibujan como un rombo dorado grande, para que salten a la vista sin esconder las demás.")
 cPrime    = input.color(#FFD600, "Color de las destacadas / Premium signal color", group = G_VIS)
 showWeak  = input.bool(true, "Marcar señales descartadas / Mark discarded signals", group = G_VIS, tooltip = "Puntos pequeños donde hubo señal pero no llegó a las estrellas mínimas. Contexto, no operaciones.")
-tblPos    = input.string(position.top_right, "Posición del panel / Panel position", options = [position.top_right, position.top_center, position.top_left, position.middle_right, position.middle_center, position.middle_left, position.bottom_right, position.bottom_center, position.bottom_left], group = G_VIS)
+tblPos    = input.string(position.bottom_right, "Posición del panel / Panel position", options = [position.top_right, position.top_center, position.top_left, position.middle_right, position.middle_center, position.middle_left, position.bottom_right, position.bottom_center, position.bottom_left], group = G_VIS)
+alertFmt  = input.enum(AlertFmt.json, "Formato de la alerta / Alert format", group = G_VIS, tooltip = "JSON: para conectar a un bot o webhook. Texto legible: para leerlo tú misma en Telegram u otra app, sin ningún bot detrás.")
 
 // ── Ayuda de idioma / Language helper ──────────────────────────────
 txt(string sEs, string sEn) =>
@@ -391,7 +403,7 @@ if barstate.islast
     cell(0, 7, txt("HISTÓRICO EN ESTE GRÁFICO", "HISTORY ON THIS CHART"), color.silver, color.new(color.gray, 75))
     cell(1, 7, txt("al TP1", "at TP1"), color.silver, color.new(color.gray, 75))
 
-    cell(0, 8, txt("Operaciones", "Trades"), color.silver, clear)
+    cell(0, 8, txt("Operaciones (con filtro)", "Trades (filtered)"), color.silver, clear)
     cell(1, 8, str.tostring(nTrades), color.white, clear)
 
     cell(0, 9, txt("Aciertos", "Win rate"), color.silver, clear)
@@ -405,7 +417,7 @@ if barstate.islast
 
     if showStats
         cell(0, 12, txt("¿QUÉ OBJETIVO CONVIENE?", "WHICH TARGET PAYS?"), color.silver, color.new(color.gray, 75))
-        cell(1, 12, str.tostring(mTotal) + txt(" señales medidas", " signals measured"), color.silver, color.new(color.gray, 75))
+        cell(1, 12, str.tostring(mTotal) + txt(" señales medidas (todas)", " signals measured (all)"), color.silver, color.new(color.gray, 75))
         targetRow(13, "TP1", mWin1, r1)
         targetRow(14, "TP2", mWin2, r2)
         targetRow(15, "TP3", mWin3, r3)
@@ -416,7 +428,7 @@ if barstate.islast
 alertcondition(longTrig,  "Entrada larga / Long entry",  "PineCrafter Cockpit: entrada LARGA en {{ticker}} ({{interval}})")
 alertcondition(shortTrig, "Entrada corta / Short entry", "PineCrafter Cockpit: entrada CORTA en {{ticker}} ({{interval}})")
 
-// Mensaje JSON listo para webhook / JSON payload ready for webhooks
+// Mensaje de alerta: JSON para bot, o texto legible para leer a simple vista
 if opened
     string jsonMsg = '{"estrategia":"pinecrafter_cockpit_v2","simbolo":"' + syminfo.ticker +
          '","accion":"' + (posDir == 1 ? "comprar" : "vender") +
@@ -427,4 +439,12 @@ if opened
          ',"tp2":' + str.tostring(tp2P, format.mintick) +
          ',"tp3":' + str.tostring(tp3P, format.mintick) +
          ',"unidades":' + str.tostring(qty, "#.##") + '}'
-    alert(jsonMsg, alert.freq_once_per_bar_close)
+
+    string readableMsg = (posDir == 1 ? "📈 " : "📉 ") + "PineCrafter · " + (posDir == 1 ? txt("Señal de compra", "Buy signal") : txt("Señal de venta", "Sell signal")) + "\n" +
+         syminfo.ticker + "  ·  " + txt("Calidad ", "Quality ") + stars(posStars) + "\n\n" +
+         txt("Entrada: ", "Entry: ") + str.tostring(entryP, format.mintick) + "\n" +
+         "Stop: " + str.tostring(stopP, format.mintick) + "\n" +
+         "TP1: " + str.tostring(tp1P, format.mintick) + "  ·  TP2: " + str.tostring(tp2P, format.mintick) + "  ·  TP3: " + str.tostring(tp3P, format.mintick) + "\n" +
+         txt("Tamaño sugerido: ", "Suggested size: ") + str.tostring(qty, "#.##")
+
+    alert(alertFmt == AlertFmt.readable ? readableMsg : jsonMsg, alert.freq_once_per_bar_close)
