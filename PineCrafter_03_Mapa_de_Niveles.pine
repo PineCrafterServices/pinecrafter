@@ -3,7 +3,7 @@
 //@version=6
 // ═══════════════════════════════════════════════════════════════════
 //  PineCrafter · Mapa de Niveles / Levels Map
-//  Portfolio #3 · v1.3 · Pine Script v6 · Sin repintado / Non-repainting
+//  Portfolio #3 · v1.10 · Pine Script v6 · Sin repintado / Non-repainting
 //
 //  Para qué sirve: para decidir dónde poner el objetivo sin tener que
 //  cambiar de gráfico ni mirar hacia atrás a ojo.
@@ -12,24 +12,60 @@
 //   · Máximos y mínimos recientes del propio gráfico (pivotes).
 //   · Máximo, mínimo y cierre del día, la semana y el mes anteriores.
 //
-//  Y en el panel te ordena los más cercanos por arriba y por abajo,
-//  con la distancia en PORCENTAJE y en MÚLTIPLOS DE ATR. Ese segundo
-//  número es el que decide: si el siguiente techo está a 0,8 ATR, un
-//  objetivo a 2 ATR está detrás de un muro.
+//  El panel tiene DOS bloques separados, para no mezclar lo conocido
+//  con lo nuevo:
+//   · REFERENCIAS RÁPIDAS: día/semana/mes anteriores, siempre visibles,
+//     sin ranking, tal como las miras tú misma en un vistazo.
+//   · MÁXIMOS Y MÍNIMOS DEL GRÁFICO: por encima del precio solo aparecen
+//     máximos; por debajo, solo mínimos. Un mínimo antiguo que hoy quede
+//     por encima del precio ya no cuenta como techo: eso era justo lo
+//     que no tenía sentido antes.
 //
-//  Abajo del panel, el recorrido de hoy contra el recorrido medio
-//  diario: si el activo ya ha hecho su movimiento del día, pedirle
-//  otro tanto es poco realista.
+//  IMPORTANTE sobre "cuántos guarda": el ajuste "Cuántos recordar" cuenta
+//  por CANTIDAD de máximos/mínimos, no por fecha. En un activo tranquilo
+//  esa cantidad puede abarcar meses; en uno muy volátil, solo unas
+//  semanas. No hay ningún corte por calendario ("este año", "30 días");
+//  si quieres llegar más atrás en un activo agitado, sube ese número o
+//  mira una temporalidad mayor.
 //
-//  Cada nivel dice de dónde viene y el texto va del color de su línea:
-//   · gris   = máximo o mínimo del propio gráfico, con la FECHA en que se formó
-//   · azul   = día anterior
-//   · naranja= semana anterior
-//   · morado = mes anterior
+//  Cada distancia lleva ATR y porcentaje, con un fondo de color para
+//  que se lea de un vistazo aunque el tema sea oscuro: verde si el
+//  nivel está por encima del precio, rojo si está por debajo.
+//
+//  v1.10 · Idioma por defecto pasa a inglés (para publicar en Fiverr;
+//  sigue siendo bilingüe, cambia a español cuando quieras). Nuevo
+//  desplegable "Tu huso horario": elígelo una vez y las horas del panel
+//  coinciden con tu reloj para siempre. Un script no puede detectar solo
+//  dónde estás cada persona que lo mira; esta es la forma de
+//  configurarlo sin volver a hacer cuentas.
+//  v1.9 · Aclaración añadida: las fechas del bloque de máximos y mínimos
+//  van siempre en hora del MERCADO (la del símbolo), no en la hora que
+//  tengas elegida para ver el gráfico. Si tu chart está en otra zona
+//  horaria, la hora mostrada y la posición visual de la vela en tu
+//  pantalla no van a coincidir, aunque el precio sí sea el correcto.
+//  v1.8 · Corrige dos errores de compilación que se me colaron en la
+//  v1.7: la función del panel no puede declararse dentro de un "if"
+//  (solo variables), y el nombre corto del indicador medía 12
+//  caracteres cuando el límite de TradingView es 10.
+//  v1.7 · La tabla del panel ahora nace del tamaño EXACTO que necesita
+//  cada vez, así que ya no quedan huecos oscuros vacíos debajo cuando
+//  hay pocos niveles que mostrar.
+//  v1.6 · Por encima del precio solo se muestran máximos, y por debajo
+//  solo mínimos (antes se mezclaban y salían resultados sin sentido).
+//  Título del bloque más claro. Líneas del gráfico apagadas por
+//  defecto: solo panel, sin dibujo, hasta que las actives tú.
+//  v1.5 · Panel dividido en dos bloques (referencias vs. otros niveles
+//  del gráfico) en vez de una sola lista mezclada. Nuevo interruptor
+//  para apagar las líneas del gráfico y dejar solo el panel. Las
+//  distancias ahora llevan un fondo de color para leerse mejor.
+//  v1.4 · Se amplió cuántos máximos/mínimos del gráfico se recuerdan (de 3
+//  a 15 por defecto). Antes, un pico grande podía "olvidarse" si se
+//  formaban varios picos nuevos y pequeños después de él. Guardar más
+//  reduce mucho ese problema, sin cambiar cuántos se MUESTRAN en el panel.
 //
 //  Esto NO predice nada. Solo enseña hechos que ya están en el gráfico.
 // ═══════════════════════════════════════════════════════════════════
-indicator("PineCrafter · Mapa de Niveles", shorttitle = "PC · Niveles", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("PineCrafter · Mapa de Niveles", shorttitle = "PC·Niveles", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 // ── Idioma / Language ──────────────────────────────────────────────
 enum Lang
@@ -44,7 +80,7 @@ G_VIS = "4 · Visual"
 // ── Ajustes / Inputs ───────────────────────────────────────────────
 showPiv = input.bool(true, "Mostrar máximos y mínimos del gráfico / Show chart swings", group = G_PIV)
 pivLen  = input.int(10, "Sensibilidad (velas a cada lado) / Sensitivity", minval = 1, group = G_PIV, tooltip = "Un máximo se confirma este número de velas DESPUÉS de formarse. Es el precio de no repintar: a cambio, lo que ves es real.")
-pivKeep = input.int(3, "Cuántos guardar de cada lado / How many to keep", minval = 1, maxval = 10, group = G_PIV)
+pivKeep = input.int(15, "Cuántos recordar de cada lado / How many to remember", minval = 3, maxval = 30, group = G_PIV, tooltip = "Cuenta desde el más reciente hacia atrás, no por importancia: un máximo grande puede caer de la lista si se forman varios máximos nuevos después, aunque sean menores. Súbelo si notas que se pierden picos evidentes. Esto NO es cuántos se muestran en el panel; eso se ajusta en el Panel, aparte.")
 
 showDay   = input.bool(true,  "Día anterior / Previous day",     group = G_REF)
 showWeek  = input.bool(true,  "Semana anterior / Previous week", group = G_REF)
@@ -55,7 +91,8 @@ nShow   = input.int(3, "Niveles a mostrar por lado / Levels per side", minval = 
 atrLen  = input.int(14, "Periodo ATR / ATR length", minval = 1, group = G_PAN)
 adrDays = input.int(20, "Días para el recorrido medio / Days for average range", minval = 1, group = G_PAN)
 tblPos  = input.string(position.top_right, "Posición del panel / Panel position", options = [position.top_right, position.top_center, position.top_left, position.middle_right, position.middle_center, position.middle_left, position.bottom_right, position.bottom_center, position.bottom_left], group = G_PAN)
-langIn  = input.enum(Lang.es, "Idioma / Language", group = G_PAN)
+langIn  = input.enum(Lang.en, "Idioma / Language", group = G_PAN)
+tzChoice = input.string("Exchange (hora del mercado) / Exchange (market time)", "Tu huso horario / Your timezone", options = ["Exchange (hora del mercado) / Exchange (market time)", "UTC", "Nueva York / New York", "Chicago", "Los Ángeles / Los Angeles", "Buenos Aires", "Ciudad de México / Mexico City", "Bogotá", "Santiago de Chile", "Madrid", "Londres / London", "Dubái / Dubai", "Singapur / Singapore", "Sídney / Sydney"], group = G_PAN, tooltip = "Elige tu zona una sola vez y las horas del panel coincidirán siempre con tu reloj. Un indicador no puede detectar solo dónde estás: esta es la forma de configurarlo sin tener que hacer cuentas cada vez.")
 
 cPiv    = input.color(#B2B5BE, "Máximos y mínimos / Swings",  group = G_VIS)
 cDay    = input.color(#4FC3F7, "Día anterior / Prev day",     group = G_VIS)
@@ -63,7 +100,8 @@ cWeek   = input.color(#FFB74D, "Semana anterior / Prev week", group = G_VIS)
 cMonth  = input.color(#CE93D8, "Mes anterior / Prev month",   group = G_VIS)
 cRew    = input.color(#089981, "Distancia hacia arriba / Distance up",   group = G_VIS)
 cRiskTxt= input.color(#F23645, "Distancia hacia abajo / Distance down", group = G_VIS)
-showLbl = input.bool(false, "Etiquetas en las líneas / Labels on lines", group = G_VIS, tooltip = "Se leen mejor en el panel. Actívalas solo si quieres el gráfico anotado.")
+showLines = input.bool(false, "Dibujar líneas en el gráfico / Draw lines on chart", group = G_VIS, tooltip = "Apagado por defecto: solo el panel, sin líneas sobre las velas. Actívalo si quieres verlas dibujadas.")
+showLbl = input.bool(false, "Etiquetas en las líneas / Labels on lines", group = G_VIS, tooltip = "Se leen mejor en el panel. Actívalas solo si quieres el gráfico anotado. No hace nada si las líneas están apagadas.")
 lblOff  = input.int(14, "Separación de las etiquetas / Label offset", minval = 0, maxval = 60, group = G_VIS)
 
 // ── Ayuda de idioma / Language helper ──────────────────────────────
@@ -114,20 +152,53 @@ if not na(pl)
         array.shift(swLow)
         array.shift(swLowT)
 
-// Formato de fecha: con hora si el gráfico es intradía
-fechaNivel(int t) =>
-    str.format_time(t, timeframe.isintraday ? "d MMM HH:mm" : "d MMM", syminfo.timezone)
+// Traduce la elección del desplegable a una zona horaria real.
+// Por defecto usa la del propio mercado (comportamiento de siempre).
+tzReal() =>
+    switch tzChoice
+        "UTC" => "Etc/UTC"
+        "Nueva York / New York" => "America/New_York"
+        "Chicago" => "America/Chicago"
+        "Los Ángeles / Los Angeles" => "America/Los_Angeles"
+        "Buenos Aires" => "America/Argentina/Buenos_Aires"
+        "Ciudad de México / Mexico City" => "America/Mexico_City"
+        "Bogotá" => "America/Bogota"
+        "Santiago de Chile" => "America/Santiago"
+        "Madrid" => "Europe/Madrid"
+        "Londres / London" => "Europe/London"
+        "Dubái / Dubai" => "Asia/Dubai"
+        "Singapur / Singapore" => "Asia/Singapore"
+        "Sídney / Sydney" => "Australia/Sydney"
+        => syminfo.timezone
 
-// ── Lista de niveles para el panel y el dibujo ─────────────────────
+// Formato de fecha: con hora si el gráfico es intradía, en TU zona horaria
+fechaNivel(int t) =>
+    str.format_time(t, timeframe.isintraday ? "d MMM HH:mm" : "d MMM", tzReal())
+
+// Para la aclaración del panel: "hora mercado" si no has elegido otra, o
+// el nombre de la zona que elegiste.
+tzEtiqueta() =>
+    tzChoice == "Exchange (hora del mercado) / Exchange (market time)" ? txt("hora mercado", "market time") : tzChoice
+
+// ── Listas de niveles ────────────────────────────────────────────────
+// Referencias (día/semana/mes): bloque fijo del panel, sin ranking.
+var array<float>  refP = array.new_float(0)
+var array<string> refN = array.new_string(0)
+var array<color>  refC = array.new_color(0)
+
+// Máximos y mínimos del propio gráfico: van en la escalera de abajo.
 var array<float>  lvlP = array.new_float(0)
 var array<string> lvlN = array.new_string(0)
 var array<color>  lvlC = array.new_color(0)
+var array<bool>   lvlHigh = array.new_bool(0)  // true = máximo, false = mínimo
 
 var array<line>  drawnLines  = array.new_line(0)
 var array<label> drawnLabels = array.new_label(0)
 
-// Devuelve el nivel que ocupa la posición "rank" en cercanía, por
-// encima o por debajo del precio de referencia.
+// Devuelve el nivel de lvlP que ocupa la posición "rank" en cercanía.
+// Por encima del precio SOLO considera máximos; por debajo, SOLO mínimos.
+// Un mínimo antiguo que hoy quede por encima del precio no cuenta como
+// techo: mezclar tipos es justo lo que confundía antes.
 pickLevel(float ref, bool above, int rank) =>
     float outP = na
     string outN = ""
@@ -136,14 +207,16 @@ pickLevel(float ref, bool above, int rank) =>
     if n > 0
         for i = 0 to n - 1
             float pi = array.get(lvlP, i)
-            bool  lado = above ? pi > ref : pi < ref
+            bool  esMax = array.get(lvlHigh, i)
+            bool  lado = above ? (pi > ref and esMax) : (pi < ref and not esMax)
             if lado
                 float di = math.abs(pi - ref)
                 int   r  = 1
                 for j = 0 to n - 1
                     if j != i
                         float pj = array.get(lvlP, j)
-                        bool  lj = above ? pj > ref : pj < ref
+                        bool  esMaxJ = array.get(lvlHigh, j)
+                        bool  lj = above ? (pj > ref and esMaxJ) : (pj < ref and not esMaxJ)
                         // El índice desempata: si dos niveles están a la misma
                         // distancia, no comparten posición y no se pierde ninguna fila
                         if lj and (math.abs(pj - ref) < di or (math.abs(pj - ref) == di and j < i))
@@ -155,7 +228,11 @@ pickLevel(float ref, bool above, int rank) =>
     [outP, outN, outC]
 
 // ── Construcción, dibujo y panel: solo en la última vela ───────────
-var table mapa = table.new(tblPos, 3, 15, bgcolor = color.new(color.black, 12), border_color = color.new(color.gray, 70), border_width = 1)
+// La tabla se RECONSTRUYE cada vez del tamaño exacto que hace falta,
+// para que no queden filas vacías ocupando espacio en el gráfico.
+// (cell() tiene que vivir aquí fuera: Pine no permite declarar
+// funciones dentro de un bloque if, solo variables.)
+var table mapa = na
 
 cell(int col, int row, string s, color tc, color bg) =>
     table.cell(mapa, col, row, s, text_color = tc, bgcolor = bg, text_size = size.small)
@@ -171,99 +248,70 @@ if barstate.islast
             label.delete(array.get(drawnLabels, i))
         array.clear(drawnLabels)
 
-    // 2. Reconstruimos la lista de niveles
+    // 2. Reconstruimos las listas de niveles
+    array.clear(refP)
+    array.clear(refN)
+    array.clear(refC)
     array.clear(lvlP)
     array.clear(lvlN)
     array.clear(lvlC)
+    array.clear(lvlHigh)
 
-    // Primero los niveles de referencia (día, semana, mes). Tienen prioridad
-    // de nombre porque son los que mira todo el mercado.
+    // Referencias: día, semana, mes. Van en su propio bloque fijo del panel.
     if showDay and not na(pdH)
-        array.push(lvlP, pdH), array.push(lvlN, txt("Máx. ayer", "Prev day high")), array.push(lvlC, cDay)
-        array.push(lvlP, pdL), array.push(lvlN, txt("Mín. ayer", "Prev day low")),  array.push(lvlC, cDay)
+        array.push(refP, pdH), array.push(refN, txt("Máx. ayer", "Prev day high")), array.push(refC, cDay)
+        array.push(refP, pdL), array.push(refN, txt("Mín. ayer", "Prev day low")),  array.push(refC, cDay)
         if showClose
-            array.push(lvlP, pdC), array.push(lvlN, txt("Cierre ayer", "Prev day close")), array.push(lvlC, cDay)
+            array.push(refP, pdC), array.push(refN, txt("Cierre ayer", "Prev day close")), array.push(refC, cDay)
 
     if showWeek and not na(pwH)
-        array.push(lvlP, pwH), array.push(lvlN, txt("Máx. semana ant.", "Prev week high")), array.push(lvlC, cWeek)
-        array.push(lvlP, pwL), array.push(lvlN, txt("Mín. semana ant.", "Prev week low")),  array.push(lvlC, cWeek)
+        array.push(refP, pwH), array.push(refN, txt("Máx. semana ant.", "Prev week high")), array.push(refC, cWeek)
+        array.push(refP, pwL), array.push(refN, txt("Mín. semana ant.", "Prev week low")),  array.push(refC, cWeek)
         if showClose
-            array.push(lvlP, pwC), array.push(lvlN, txt("Cierre semana ant.", "Prev week close")), array.push(lvlC, cWeek)
+            array.push(refP, pwC), array.push(refN, txt("Cierre semana ant.", "Prev week close")), array.push(refC, cWeek)
 
     if showMonth and not na(pmH)
-        array.push(lvlP, pmH), array.push(lvlN, txt("Máx. mes ant.", "Prev month high")), array.push(lvlC, cMonth)
-        array.push(lvlP, pmL), array.push(lvlN, txt("Mín. mes ant.", "Prev month low")),  array.push(lvlC, cMonth)
+        array.push(refP, pmH), array.push(refN, txt("Máx. mes ant.", "Prev month high")), array.push(refC, cMonth)
+        array.push(refP, pmL), array.push(refN, txt("Mín. mes ant.", "Prev month low")),  array.push(refC, cMonth)
         if showClose
-            array.push(lvlP, pmC), array.push(lvlN, txt("Cierre mes ant.", "Prev month close")), array.push(lvlC, cMonth)
+            array.push(refP, pmC), array.push(refN, txt("Cierre mes ant.", "Prev month close")), array.push(refC, cMonth)
 
-    // Después los máximos y mínimos del gráfico, nombrados por su FECHA.
-    // Si uno cae en el mismo precio que un nivel de referencia, se descarta:
-    // sería una fila repetida en el panel.
+    // Máximos y mínimos del propio gráfico, nombrados por su FECHA. Si uno
+    // cae en el mismo precio que una referencia, se descarta: sería una
+    // fila repetida entre los dos bloques.
     if showPiv
         int nH = array.size(swHigh)
         if nH > 0
             for i = 0 to nH - 1
                 float pv = array.get(swHigh, i)
                 bool  rep = false
-                if array.size(lvlP) > 0
-                    for k = 0 to array.size(lvlP) - 1
-                        if math.abs(array.get(lvlP, k) - pv) <= syminfo.mintick
+                if array.size(refP) > 0
+                    for k = 0 to array.size(refP) - 1
+                        if math.abs(array.get(refP, k) - pv) <= syminfo.mintick
                             rep := true
                 if not rep
                     array.push(lvlP, pv)
                     array.push(lvlN, txt("Máx. ", "High ") + fechaNivel(array.get(swHighT, i)))
                     array.push(lvlC, cPiv)
+                    array.push(lvlHigh, true)
         int nL = array.size(swLow)
         if nL > 0
             for i = 0 to nL - 1
                 float pv = array.get(swLow, i)
                 bool  rep = false
-                if array.size(lvlP) > 0
-                    for k = 0 to array.size(lvlP) - 1
-                        if math.abs(array.get(lvlP, k) - pv) <= syminfo.mintick
+                if array.size(refP) > 0
+                    for k = 0 to array.size(refP) - 1
+                        if math.abs(array.get(refP, k) - pv) <= syminfo.mintick
                             rep := true
                 if not rep
                     array.push(lvlP, pv)
                     array.push(lvlN, txt("Mín. ", "Low ") + fechaNivel(array.get(swLowT, i)))
                     array.push(lvlC, cPiv)
+                    array.push(lvlHigh, false)
 
-    // 3. Dibujamos cada nivel
-    if array.size(lvlP) > 0
-        for i = 0 to array.size(lvlP) - 1
-            float p = array.get(lvlP, i)
-            color c = array.get(lvlC, i)
-            line ln = line.new(bar_index - 1, p, bar_index, p, extend = extend.right, color = color.new(c, 35), style = line.style_dotted, width = 1)
-            array.push(drawnLines, ln)
-            if showLbl
-                label lb = label.new(bar_index + lblOff, p, array.get(lvlN, i),
-                     style     = label.style_label_left,
-                     color     = color.new(color.black, 100),
-                     textcolor = color.new(c, 15),
-                     size      = size.small)
-                array.push(drawnLabels, lb)
-
-    // 4. Panel: escalera de niveles alrededor del precio
-    float ref  = close
-    float dayR = nz(todayH - todayL, 0)
-    float pctR = adrVal > 0 ? dayR / adrVal * 100 : na
-    color clear = color.new(color.black, 100)
-
-    // Limpiamos todas las filas para que no queden restos al cambiar nShow
-    for r = 0 to 14
-        cell(0, r, "", color.gray, clear)
-        cell(1, r, "", color.gray, clear)
-        cell(2, r, "", color.gray, clear)
-
-    cell(0, 0, "PineCrafter", color.white, color.new(#2962FF, 25))
-    cell(1, 0, txt("Mapa de Niveles", "Levels Map"), color.white, color.new(#2962FF, 25))
-    cell(2, 0, "", color.white, color.new(#2962FF, 25))
-
-    cell(0, 1, txt("Nivel", "Level"),  color.silver, color.new(color.gray, 80))
-    cell(1, 1, txt("Precio", "Price"), color.silver, color.new(color.gray, 80))
-    cell(2, 1, txt("Distancia", "Distance"), color.silver, color.new(color.gray, 80))
-
-    // Recogemos primero SOLO los niveles que existen de verdad, para no
-    // dejar filas vacías con guiones cuando hay menos de "nShow" disponibles.
+    // Calculamos cuántos niveles hay por encima y por debajo ANTES de crear
+    // la tabla, para que nazca del tamaño exacto que hace falta.
+    float ref = close
     var array<float>  arP = array.new_float(0)
     var array<string> arN = array.new_string(0)
     var array<color>  arC = array.new_color(0)
@@ -284,7 +332,92 @@ if barstate.islast
             array.push(brP, p), array.push(brN, n), array.push(brC, c)
     int nBelow = array.size(brP)
 
-    int filaPrecio = 2 + nAbove
+    // 3. Dibujamos las líneas, solo si el interruptor está activado
+    if showLines
+        if array.size(refP) > 0
+            for i = 0 to array.size(refP) - 1
+                float p = array.get(refP, i)
+                color c = array.get(refC, i)
+                line ln = line.new(bar_index - 1, p, bar_index, p, extend = extend.right, color = color.new(c, 35), style = line.style_dotted, width = 1)
+                array.push(drawnLines, ln)
+                if showLbl
+                    label lb = label.new(bar_index + lblOff, p, array.get(refN, i),
+                         style     = label.style_label_left,
+                         color     = color.new(color.black, 100),
+                         textcolor = color.new(c, 15),
+                         size      = size.small)
+                    array.push(drawnLabels, lb)
+        if array.size(lvlP) > 0
+            for i = 0 to array.size(lvlP) - 1
+                float p = array.get(lvlP, i)
+                color c = array.get(lvlC, i)
+                line ln = line.new(bar_index - 1, p, bar_index, p, extend = extend.right, color = color.new(c, 35), style = line.style_dotted, width = 1)
+                array.push(drawnLines, ln)
+                if showLbl
+                    label lb = label.new(bar_index + lblOff, p, array.get(lvlN, i),
+                         style     = label.style_label_left,
+                         color     = color.new(color.black, 100),
+                         textcolor = color.new(c, 15),
+                         size      = size.small)
+                    array.push(drawnLabels, lb)
+
+    // 4. Panel: dos bloques (referencias fijas, y escalera de máximos/mínimos)
+    float dayR = nz(todayH - todayL, 0)
+    float pctR = adrVal > 0 ? dayR / adrVal * 100 : na
+    color clear = color.new(color.black, 100)
+
+    // Tamaño exacto de la tabla: cabecera + columnas + bloque de referencias
+    // (si hay) + bloque de máximos/mínimos (si está activo) + precio + recorrido y ATR.
+    int refCount  = array.size(refP)
+    int totalRows = 2 + (refCount > 0 ? 1 + refCount : 0) + (showPiv ? 1 : 0) + nAbove + 1 + nBelow + 2
+
+    // Borramos la tabla del fotograma anterior antes de crear la nueva:
+    // así nunca quedan dos tablas superpuestas.
+    if not na(mapa)
+        table.delete(mapa)
+    mapa := table.new(tblPos, 3, totalRows, bgcolor = color.new(color.black, 12), border_color = color.new(color.gray, 70), border_width = 1)
+
+    cell(0, 0, "PineCrafter", color.white, color.new(#2962FF, 25))
+    cell(1, 0, txt("Mapa de Niveles", "Levels Map"), color.white, color.new(#2962FF, 25))
+    cell(2, 0, "", color.white, color.new(#2962FF, 25))
+
+    cell(0, 1, txt("Nivel", "Level"),  color.silver, color.new(color.gray, 80))
+    cell(1, 1, txt("Precio", "Price"), color.silver, color.new(color.gray, 80))
+    cell(2, 1, txt("Distancia", "Distance"), color.silver, color.new(color.gray, 80))
+
+    int row = 2
+
+    // ── Bloque 1: Referencias rápidas ───────────────────────────────
+    if refCount > 0
+        cell(0, row, txt("REFERENCIAS RÁPIDAS", "QUICK REFERENCE"), color.silver, color.new(color.gray, 75))
+        cell(1, row, "", color.silver, color.new(color.gray, 75))
+        cell(2, row, "", color.silver, color.new(color.gray, 75))
+        row := row + 1
+        for i = 0 to refCount - 1
+            float  p     = array.get(refP, i)
+            string n     = array.get(refN, i)
+            color  c     = array.get(refC, i)
+            bool   above = p > ref
+            float  dPct  = math.abs(p - ref) / ref * 100
+            float  dAtr  = atrVal > 0 ? math.abs(p - ref) / atrVal : na
+            string sign  = above ? "+" : "-"
+            color  distC = above ? cRew : cRiskTxt
+            cell(0, row, n, color.white, color.new(c, 65))
+            cell(1, row, str.tostring(p, format.mintick), color.white, clear)
+            cell(2, row, sign + str.tostring(dAtr, "#.##") + " ATR  ·  " + sign + str.tostring(dPct, "#.##") + "%", color.white, color.new(distC, 65))
+            row := row + 1
+
+    // Recogemos primero SOLO los niveles que existen de verdad, para no
+    // dejar filas vacías cuando hay menos de "nShow" disponibles.
+    // (arP/brP/nAbove/nBelow ya se calcularon antes, para poder crear
+    // la tabla del tamaño exacto)
+
+    // ── Bloque 2: Máximos y mínimos del gráfico (escalera alrededor del precio) ─
+    if showPiv
+        cell(0, row, txt("MÁXIMOS Y MÍNIMOS DEL GRÁFICO", "CHART HIGHS & LOWS"), color.silver, color.new(color.gray, 75))
+        cell(1, row, "", color.silver, color.new(color.gray, 75))
+        cell(2, row, tzEtiqueta(), color.gray, color.new(color.gray, 75))
+        row := row + 1
 
     // Niveles POR ENCIMA: el más lejano arriba, el más cercano justo sobre el precio
     if nAbove > 0
@@ -292,16 +425,17 @@ if barstate.islast
             float p  = array.get(arP, nAbove - 1 - i)
             string n = array.get(arN, nAbove - 1 - i)
             color  c = array.get(arC, nAbove - 1 - i)
-            int fila = 2 + i
             float dPct = (p - ref) / ref * 100
             float dAtr = atrVal > 0 ? (p - ref) / atrVal : na
-            cell(0, fila, n, color.white, color.new(c, 65))
-            cell(1, fila, str.tostring(p, format.mintick), color.white, clear)
-            cell(2, fila, "+" + str.tostring(dAtr, "#.##") + " ATR  ·  +" + str.tostring(dPct, "#.##") + "%", color.new(cRew, 0), clear)
+            cell(0, row, n, color.white, color.new(c, 65))
+            cell(1, row, str.tostring(p, format.mintick), color.white, clear)
+            cell(2, row, "+" + str.tostring(dAtr, "#.##") + " ATR  ·  +" + str.tostring(dPct, "#.##") + "%", color.white, color.new(cRew, 65))
+            row := row + 1
 
-    cell(0, filaPrecio, txt("► PRECIO AHORA", "► PRICE NOW"), color.black, color.new(color.white, 15))
-    cell(1, filaPrecio, str.tostring(ref, format.mintick), color.black, color.new(color.white, 15))
-    cell(2, filaPrecio, "", color.black, color.new(color.white, 15))
+    cell(0, row, txt("► PRECIO AHORA", "► PRICE NOW"), color.black, color.new(color.white, 15))
+    cell(1, row, str.tostring(ref, format.mintick), color.black, color.new(color.white, 15))
+    cell(2, row, "", color.black, color.new(color.white, 15))
+    row := row + 1
 
     // Niveles POR DEBAJO: el más cercano justo bajo el precio
     if nBelow > 0
@@ -309,20 +443,19 @@ if barstate.islast
             float p  = array.get(brP, i)
             string n = array.get(brN, i)
             color  c = array.get(brC, i)
-            int fila = filaPrecio + 1 + i
             float dPct = (ref - p) / ref * 100
             float dAtr = atrVal > 0 ? (ref - p) / atrVal : na
-            cell(0, fila, n, color.white, color.new(c, 65))
-            cell(1, fila, str.tostring(p, format.mintick), color.white, clear)
-            cell(2, fila, "-" + str.tostring(dAtr, "#.##") + " ATR  ·  -" + str.tostring(dPct, "#.##") + "%", color.new(cRiskTxt, 0), clear)
+            cell(0, row, n, color.white, color.new(c, 65))
+            cell(1, row, str.tostring(p, format.mintick), color.white, clear)
+            cell(2, row, "-" + str.tostring(dAtr, "#.##") + " ATR  ·  -" + str.tostring(dPct, "#.##") + "%", color.white, color.new(cRiskTxt, 65))
+            row := row + 1
 
     // Contexto de recorrido
-    int filaRec = filaPrecio + nBelow + 1
-    cell(0, filaRec, txt("Recorrido hoy", "Today's range"), color.silver, color.new(color.gray, 80))
-    cell(1, filaRec, str.tostring(dayR, format.mintick), color.white, color.new(color.gray, 80))
-    cell(2, filaRec, na(pctR) ? "—" : str.tostring(pctR, "#") + txt("% del recorrido medio", "% of average range"), color.white, color.new(nz(pctR, 0) > 90 ? cWeek : cDay, 55))
+    cell(0, row, txt("Recorrido hoy", "Today's range"), color.silver, color.new(color.gray, 80))
+    cell(1, row, str.tostring(dayR, format.mintick), color.white, color.new(color.gray, 80))
+    cell(2, row, na(pctR) ? "—" : str.tostring(pctR, "#") + txt("% del recorrido medio", "% of average range"), color.white, color.new(nz(pctR, 0) > 90 ? cWeek : cDay, 55))
+    row := row + 1
 
-    int filaAtr = filaRec + 1
-    cell(0, filaAtr, "ATR (" + str.tostring(atrLen) + ")", color.silver, clear)
-    cell(1, filaAtr, str.tostring(atrVal, format.mintick), color.white, clear)
-    cell(2, filaAtr, txt("recorrido medio " + str.tostring(adrDays) + "d: ", "avg range " + str.tostring(adrDays) + "d: ") + str.tostring(adrVal, format.mintick), color.silver, clear)
+    cell(0, row, "ATR (" + str.tostring(atrLen) + ")", color.silver, clear)
+    cell(1, row, str.tostring(atrVal, format.mintick), color.white, clear)
+    cell(2, row, txt("recorrido medio " + str.tostring(adrDays) + "d: ", "avg range " + str.tostring(adrDays) + "d: ") + str.tostring(adrVal, format.mintick), color.silver, clear)
